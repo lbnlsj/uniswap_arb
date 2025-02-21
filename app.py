@@ -1,91 +1,69 @@
-from flask import Flask, render_template, request, jsonify
-import random
+from flask import Flask, request, render_template, jsonify
 from web3 import Web3
+import os
+from utilities.v3 import UniswapV3Router
+from dotenv import load_dotenv
 
 app = Flask(__name__)
+load_dotenv()
 
-DEX_PROTOCOLS = [
-    {'name': 'Uniswap V2', 'pools': ['0.3%']},
-    {'name': 'Uniswap V3', 'pools': ['0.01%', '0.05%', '0.3%', '1%']},
-    {'name': 'SushiSwap', 'pools': ['0.3%']},
-    {'name': 'PancakeSwap', 'pools': ['0.25%']},
-    {'name': 'Curve', 'pools': ['0.04%']},
-    {'name': 'Balancer', 'pools': ['0.3%', '1%']}
-]
+# 网络配置
+NETWORK_CONFIG = {
+    'sepolia': {
+        'rpc': os.getenv('SEPOLIA_RPC'),
+        'router': os.getenv('SEPOLIA_ROUTER')
+    },
+    'mainnet': {
+        'rpc': os.getenv('ETH_RPC'),
+        'router': os.getenv('ETH_ROUTER', '0xE592427A0AEce92De3Edee1F18E0157C05861564')  # Mainnet Router
+    }
+}
 
+# 默认的交易费率（0.3%）
+DEFAULT_FEE = 3000
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
-
-@app.route('/calculate_route', methods=['POST'])
-def calculate_route():
+@app.route('/api/swap', methods=['POST'])
+def execute_swap():
     try:
-        rpc_url = request.form.get('rpcUrl')
-        web3 = Web3(Web3.HTTPProvider(rpc_url))
-        chain_id = web3.eth.chain_id if web3.is_connected() else 1  # 默认使用以太坊主网
-        token_type = request.form.get('tokenType', 'native')
-        amount = float(request.form.get('tradeAmount', 1.0))
+        data = request.json
+        network = data.get('network', 'sepolia')
+        token_path = data.get('tokenPath', [])
+        amount_in = int(data.get('amountIn', 0))
+        private_key = data.get('privateKey')
 
-        # 根据chain_id识别网络原生代币
-        native_tokens = {
-            1: 'ETH',
-            56: 'BNB',
-            137: 'MATIC',
-            42161: 'ETH',
-            10: 'ETH'
-        }
+        # 验证输入
+        if not all([network, token_path, amount_in, private_key]):
+            return jsonify({'error': '缺少必要参数'}), 400
 
-        token_symbol = native_tokens.get(chain_id, 'ETH') if token_type == 'native' else 'ERC20'
+        if len(token_path) < 2:
+            return jsonify({'error': '代币路径必须包含至少2个代币'}), 400
 
-        # 生成随机路由路径
-        route = generate_random_route()
+        # 使用默认交易费率
+        fees = [DEFAULT_FEE] * (len(token_path) - 1)
 
-        result = {
-            'inputToken': token_symbol,
-            'inputAmount': amount,
-            'outputAmount': calculate_output_amount(amount, route),
-            'estimatedGas': random.randint(80000, 500000),
-            'priceImpact': random.uniform(0.001, 0.02) * 100,
-            'route': route
-        }
+        # 设置环境变量
+        os.environ['PRIVATE_KEY'] = private_key
+        os.environ[f'{network.upper()}_RPC'] = NETWORK_CONFIG[network]['rpc']
+        os.environ[f'{network.upper()}_ROUTER'] = NETWORK_CONFIG[network]['router']
 
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        # 初始化路由器并执行交易
+        router = UniswapV3Router()
+        result = router.swap_exact_input(token_path, fees, amount_in)
 
-
-def generate_random_route():
-    route = []
-    num_hops = random.randint(1, 3)  # 随机1-3跳路由
-
-    used_protocols = set()
-    for _ in range(num_hops):
-        # 随机选择未使用的协议
-        available_protocols = [p for p in DEX_PROTOCOLS if p['name'] not in used_protocols]
-        if not available_protocols:
-            break
-
-        protocol = random.choice(available_protocols)
-        used_protocols.add(protocol['name'])
-
-        route.append({
-            'protocol': protocol['name'],
-            'pool': random.choice(protocol['pools'])
+        return jsonify({
+            'success': True,
+            'transaction': result
         })
 
-    return route
-
-
-def calculate_output_amount(amount, route):
-    # 基于路由计算输出金额
-    output = amount
-    for hop in route:
-        impact = random.uniform(0.997, 0.999)  # 每跳0.1-0.3%的滑点
-        output *= impact
-    return output
-
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=7200)
+    app.run(host='0.0.0.0', port=3453, debug=True)

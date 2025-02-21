@@ -1,123 +1,93 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh">
 <head>
-    <title>Uniswap 交易路由</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/web3/1.7.4-rc.1/web3.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uniswap V3 多跳交易</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        .form-container { max-width: 800px; margin: 30px auto; }
-        .result-card { margin-top: 20px; }
+        .token-input {
+            margin-bottom: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        .loading {
+            display: none;
+        }
     </style>
 </head>
-<body class="bg-light">
-    <div class="container form-container">
-        <div class="card shadow">
-            <div class="card-header bg-primary text-white">
-                <h3 class="mb-0">Uniswap 交易路由</h3>
-            </div>
+<body>
+    <div class="container mt-5">
+        <h2 class="mb-4">Uniswap V3 多跳交易</h2>
+
+        <div class="card">
             <div class="card-body">
-                <form id="tradeForm">
+                <form id="swapForm">
                     <div class="mb-3">
-                        <label class="form-label">代币类型</label>
-                        <select class="form-select" id="tokenType" name="tokenType">
-                            <option value="native" selected>原生代币</option>
-                            <option value="erc20">ERC20 代币</option>
+                        <label class="form-label">网络</label>
+                        <select class="form-select" id="network" required>
+                            <option value="sepolia">Sepolia 测试网</option>
+                            <option value="mainnet">以太坊主网</option>
                         </select>
                     </div>
 
-                    <div class="mb-3" id="tokenAddressInput" style="display: none;">
-                        <label class="form-label">输入代币地址</label>
-                        <input type="text" class="form-control" id="tokenIn" name="tokenIn"
-                               placeholder="0x..." value="0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984">
-                        <div class="form-text">默认为UNI代币地址</div>
+                    <div class="mb-3">
+                        <label class="form-label">私钥</label>
+                        <input type="password" class="form-control" id="privateKey"
+                               value="f9c182a372a722fea5a61af35566a140fdd8106180c29fd0b69bb8e3e06c4f5a" required>
+                        <small class="text-muted">您的私钥不会被存储或传输</small>
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label">交易数量</label>
-                        <input type="number" class="form-control" id="tradeAmount" name="tradeAmount"
-                               step="0.000001" value="1.0" required>
+                        <label class="form-label">输入数量 (最小单位)</label>
+                        <input type="number" class="form-control" id="amountIn" value="1000000" required>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label">Uniswap 合约地址</label>
-                        <input type="text" class="form-control" id="uniswapContract" name="uniswapContract"
-                               value="0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D" required>
-                        <div class="form-text">Uniswap V2 Router地址</div>
+                    <div id="tokenPathContainer">
+                        <label class="form-label">代币路径</label>
+                        <div class="token-input">
+                            <input type="text" class="form-control" value="0x1c7d4b196cb0c7b01d743fbc6116a902379c7238" required>
+                            <button type="button" class="btn btn-danger remove-token" style="display: none;">移除</button>
+                        </div>
+                        <div class="token-input">
+                            <input type="text" class="form-control" value="0x1f9840a85d5af5bf1d1762f925bdaddc4201f984" required>
+                            <button type="button" class="btn btn-danger remove-token" style="display: none;">移除</button>
+                        </div>
+                        <div class="token-input">
+                            <input type="text" class="form-control" value="0xfff9976782d46cc05630d1f6ebab18b2324d6b14" required>
+                            <button type="button" class="btn btn-danger remove-token" style="display: none;">移除</button>
+                        </div>
+                        <div class="token-input">
+                            <input type="text" class="form-control" value="0x1c7d4b196cb0c7b01d743fbc6116a902379c7238" required>
+                            <button type="button" class="btn btn-danger remove-token" style="display: none;">移除</button>
+                        </div>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label">RPC URL</label>
-                        <input type="text" class="form-control" id="rpcUrl" name="rpcUrl"
-                               value="https://eth-mainnet.g.alchemy.com/v2/your-api-key" required>
-                    </div>
+                    <button type="button" class="btn btn-secondary mb-3" id="addToken">添加代币</button>
 
-                    <button type="submit" class="btn btn-primary w-100">计算路由</button>
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary" id="swapButton">
+                            执行交易
+                        </button>
+                    </div>
                 </form>
 
-                <div id="result" class="result-card" style="display: none;">
-                    <div class="card">
-                        <div class="card-header bg-success text-white">
-                            路由结果
-                        </div>
-                        <div class="card-body" id="resultContent">
-                        </div>
+                <div class="loading mt-3 text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">加载中...</span>
                     </div>
+                    <p>正在处理交易...</p>
+                </div>
+
+                <div class="mt-3">
+                    <h5>交易结果:</h5>
+                    <pre id="result" class="bg-light p-3 rounded"></pre>
                 </div>
             </div>
         </div>
     </div>
 
-    <script>
-        document.getElementById('tokenType').onchange = (e) => {
-            const tokenAddressInput = document.getElementById('tokenAddressInput');
-            tokenAddressInput.style.display = e.target.value === 'erc20' ? 'block' : 'none';
-        };
-
-        document.getElementById('tradeForm').onsubmit = async (e) => {
-            e.preventDefault();
-            const btn = e.target.querySelector('button[type="submit"]');
-            btn.disabled = true;
-
-            try {
-                const formData = new FormData(e.target);
-                const response = await fetch('/calculate_route', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const result = await response.json();
-                const resultDiv = document.getElementById('result');
-                const content = document.getElementById('resultContent');
-
-                content.innerHTML = `
-                    <div class="row">
-                        <div class="col-md-6">
-                            <h5>交易详情</h5>
-                            <p><strong>输入数量:</strong> ${result.inputAmount} ${result.inputToken}</p>
-                            <p><strong>预计获得:</strong> ${result.outputAmount.toFixed(6)}</p>
-                            <p><strong>预估 Gas:</strong> ${result.estimatedGas}</p>
-                        </div>
-                        <div class="col-md-6">
-                            <h5>路由路径</h5>
-                            <ul class="list-group">
-                                ${result.route.map(r => `
-                                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                                        ${r.protocol}
-                                        <span class="badge bg-primary rounded-pill">${r.pool}</span>
-                                    </li>
-                                `).join('')}
-                            </ul>
-                        </div>
-                    </div>
-                `;
-
-                resultDiv.style.display = 'block';
-            } catch (error) {
-                alert('路由计算失败: ' + error.message);
-            } finally {
-                btn.disabled = false;
-            }
-        };
-    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/main.js"></script>
 </body>
 </html>
